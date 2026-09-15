@@ -1,0 +1,16 @@
+# 编译产物（用 build.bat 或 go build 生成，不入库）
+*.exe
+*.syso
+
+# Go 构建缓存 / 本地工具
+/vendor/
+
+# 编辑器与系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.log
+
+# 本地临时文件
+*.tmp

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>深信服案例库导出工具</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">SF</span>
+    <div class="brand-text">
+      <h1>深信服案例库导出工具</h1>
+      <p>support.sangfor.com.cn · 案例 / 解决方案批量导出</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <span class="chip" id="chip-conn">未测试连接</span>
+    <a class="link" href="https://support.sangfor.com.cn/cases/list" target="_blank" rel="noopener">打开官网 ↗</a>
+    <button class="btn btn-ghost btn-sm" id="btn-quit">退出程序</button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ============================ 左栏：筛选 ============================ -->
+  <aside class="col-left">
+
+    <section class="card">
+      <h2 class="card-title">筛选条件</h2>
+
+      <div class="field">
+        <label class="field-label" for="f-product">产品线</label>
+        <input class="input" id="f-product-filter" type="search" placeholder="输入关键字过滤产品线…">
+        <select class="input" id="f-product"><option value="">加载中…</option></select>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="f-version">适用版本</label>
+        <select class="input" id="f-version"><option value="">全部版本</option></select>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="f-keyword">关键词</label>
+        <input class="input" id="f-keyword" type="text" placeholder="标题 / 模块等，留空表示不限">
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="f-fetch-detail" checked>
+        <span>抓取正文详情<em>关闭则只抓列表摘要，速度快很多</em></span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="f-resume">
+        <span>断点续爬<em>中断后可从中断处继续，缓存存在浏览器本地</em></span>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">模块<button class="btn btn-ghost btn-xs" id="btn-module-clear">清空</button></h2>
+      <p class="card-hint" id="module-hint">先在上方选择产品线</p>
+      <div class="modules" id="modules"></div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">高级选项</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field-label" for="f-pagesize">每页条数</label>
+          <select class="input" id="f-pagesize">
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-maxpages">最大页数</label>
+          <input class="input" id="f-maxpages" type="number" min="0" value="0" placeholder="0=不限">
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-concurrency">列表并发</label>
+          <input class="input" id="f-concurrency" type="number" min="1" max="8" value="3">
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-detailconcurrency">正文并发</label>
+          <input class="input" id="f-detailconcurrency" type="number" min="1" max="8" value="4">
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-interval">请求间隔（ms）</label>
+          <input class="input" id="f-interval" type="number" min="0" max="5000" step="50" value="400">
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-recent">按更新时间过滤</label>
+          <select class="input" id="f-recent">
+            <option value="">不限</option>
+            <option value="7d">近 7 天</option>
+            <option value="30d">近 30 天</option>
+            <option value="90d">近 90 天</option>
+            <option value="180d">近 180 天</option>
+            <option value="365d">近 1 年</option>
+          </select>
+        </div>
+      </div>
+      <p class="card-hint">并发越高越快，但对目标站点压力也越大，建议保持默认。</p>
+    </section>
+
+  </aside>
+
+  <!-- ============================ 右栏：执行 ============================ -->
+  <main class="col-right">
+
+    <section class="card">
+      <div class="actions">
+        <button class="btn" id="btn-test">测试连接</button>
+        <button class="btn" id="btn-preview">预搜索</button>
+        <button class="btn btn-primary" id="btn-start">▶ 开始抓取</button>
+        <button class="btn" id="btn-pause" disabled>⏸ 暂停</button>
+        <button class="btn" id="btn-stop" disabled>⏹ 停止</button>
+      </div>
+
+      <div class="progress">
+        <div class="progress-track"><div class="progress-fill" id="prog-fill"></div></div>
+        <div class="progress-text" id="prog-text">待开始</div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><span class="stat-num" id="st-total">—</span><span class="stat-label">命中总数</span></div>
+        <div class="stat"><span class="stat-num" id="st-list">0</span><span class="stat-label">已抓取列表</span></div>
+        <div class="stat"><span class="stat-num" id="st-detail">0</span><span class="stat-label">已取正文</span></div>
+        <div class="stat"><span class="stat-num" id="st-elapsed">0s</span><span class="stat-label">耗时</span></div>
+      </div>
+    </section>
+
+    <section class="card" id="preview-card" hidden>
+      <h2 class="card-title">预搜索结果<button class="btn btn-ghost btn-xs" id="btn-preview-close">收起</button></h2>
+      <div id="preview"></div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">导出</h2>
+      <p class="card-hint" id="export-hint">抓取完成后即可导出。</p>
+      <div class="actions">
+        <button class="btn btn-primary" id="btn-export-html" disabled>导出 HTML（推荐）</button>
+        <button class="btn" id="btn-export-md" disabled>导出 Markdown</button>
+        <button class="btn" id="btn-export-csv" disabled>导出 CSV</button>
+        <button class="btn" id="btn-export-json" disabled>导出 JSON</button>
+      </div>
+      <label class="check">
+        <input type="checkbox" id="f-image-embed">
+        <span>图片内嵌为 base64<em>导出的文件可离线打开，但体积会明显变大</em></span>
+      </label>
+      <div class="field">
+        <label class="field-label" for="f-partsize">HTML 分卷：每个文件多少条（0 = 单个文件）</label>
+        <input class="input input-narrow" id="f-partsize" type="number" min="0" value="0">
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">运行日志<button class="btn btn-ghost btn-xs" id="btn-log-clear">清空</button></h2>
+      <div class="log" id="log"></div>
+    </section>
+
+  </main>
+</div>
+
+<footer class="footer">
+  <span>抓取与导出全部在本机完成，不经过任何第三方服务器。</span>
+  <span>案例内容版权归深信服所有，请仅用于个人学习与内部排查。© 2026 yimu56 · MIT License</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
