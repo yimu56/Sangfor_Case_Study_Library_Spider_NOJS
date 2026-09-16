@@ -93,18 +93,24 @@ var (
 /* ----------------------------------------------------------------- 常量 */
 
 const (
-	wmCreate     = 0x0001
-	wmDestroy    = 0x0002
-	wmPaint      = 0x000F
-	wmClose      = 0x0010
-	wmEraseBkgnd = 0x0014
-	wmSetCursor  = 0x0020
-	wmTimer      = 0x0113
-	wmMouseMove  = 0x0200
-	wmLButtonDn  = 0x0201
-	wmLButtonUp  = 0x0202
-	wmMouseLeave = 0x02A3
-	wmDpiChanged = 0x02E0
+	wmCreate          = 0x0001
+	wmDestroy         = 0x0002
+	wmPaint           = 0x000F
+	wmClose           = 0x0010
+	wmQueryEndSession = 0x0011
+	wmEraseBkgnd      = 0x0014
+	wmEndSession      = 0x0016
+	wmSetCursor       = 0x0020
+	wmTimer           = 0x0113
+	wmMouseMove       = 0x0200
+	wmLButtonDn       = 0x0201
+	wmLButtonUp       = 0x0202
+	wmMouseLeave      = 0x02A3
+	wmDpiChanged      = 0x02E0
+
+	// 自定义消息（WM_APP + 1）：界面上已经确认过一次的退出请求，
+	// 收到后直接关窗，不再弹二次确认框。
+	wmQuitConfirmed = 0x8001
 
 	wsCaption     = 0x00C00000
 	wsSysMenu     = 0x00080000
@@ -142,10 +148,16 @@ const (
 	logPixelsX     = 88
 
 	mbOK              = 0x00000000
+	mbYesNo           = 0x00000004
 	mbIconError       = 0x00000010
+	mbIconQuestion    = 0x00000020
 	mbIconInformation = 0x00000040
+	mbDefaultButton2  = 0x00000100
 	mbTopMost         = 0x00040000
 	mbSetForeground   = 0x00010000
+
+	// MessageBox 返回值
+	idYes = 6
 
 	// 逻辑设计尺寸（96 DPI 下的像素），实际渲染按 DPI 缩放
 	lwClient = 496
@@ -228,6 +240,9 @@ type launcherWin struct {
 	hover   int
 	pressed int
 	tip     string
+
+	// 系统注销/关机时置位，让随后的关闭动作不再弹确认框阻塞关机
+	skipConfirm bool
 }
 
 var (
@@ -283,13 +298,28 @@ func fatalBox(title, text string) {
 	pMessageBoxW.Call(0, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), flags)
 }
 
+// confirmQuit 在真正关闭之前做一次二次确认，返回 true 表示用户确认退出。
+// 默认按钮刻意设为「否」：误按回车/空格时程序保持运行，而不是直接退出。
+func confirmQuit(hwnd uintptr) bool {
+	title, _ := syscall.UTF16PtrFromString(appName)
+	text, _ := syscall.UTF16PtrFromString(
+		"确定要退出「" + appName + "」吗？\n\n" +
+			"退出后本地服务会一并关闭，浏览器中正在使用的界面将无法继续操作。")
+	flags := uintptr(mbYesNo | mbIconQuestion | mbDefaultButton2 | mbTopMost | mbSetForeground)
+	r, _, _ := pMessageBoxW.Call(hwnd,
+		uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(title)), flags)
+	return r == idYes
+}
+
 // requestWindowClose 通知窗口关闭；窗口还没建好时返回 false，
 // 由调用方走「无窗口」的降级退出路径。
+// 走的是自定义消息而非 WM_CLOSE：界面上的「退出程序」已经弹过一次确认，
+// 这里不再重复询问。
 func requestWindowClose() bool {
 	if appHWND == 0 {
 		return false
 	}
-	pPostMessageW.Call(appHWND, wmClose, 0, 0)
+	pPostMessageW.Call(appHWND, wmQuitConfirmed, 0, 0)
 	return true
 }
 
@@ -401,7 +431,31 @@ func launcherProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 
+	case wmQueryEndSession:
+		// 系统要关机/注销：直接放行，并把 skipConfirm 置位，
+		// 让随后的关闭不再弹确认框拖住关机流程。
+		if l != nil {
+			l.skipConfirm = true
+		}
+		return 1
+
+	case wmEndSession:
+		if wParam != 0 && l != nil {
+			l.skipConfirm = true
+			pDestroyWindow.Call(hwnd)
+		}
+		return 0
+
 	case wmClose:
+		// 关窗前二次确认，避免误点标题栏的 × 或误触「退出」把程序关掉。
+		if l != nil && !l.skipConfirm && !confirmQuit(hwnd) {
+			return 0
+		}
+		pDestroyWindow.Call(hwnd)
+		return 0
+
+	case wmQuitConfirmed:
+		// 界面里已经确认过的退出：直接关窗，不重复询问。
 		pDestroyWindow.Call(hwnd)
 		return 0
 
@@ -485,7 +539,7 @@ func (l *launcherWin) draw(hdc uintptr, w, h int32) {
 	// 分隔线 + 提示
 	sepY := l.px(232)
 	fillRect(hdc, rectT{l.px(24), sepY, w - l.px(24), sepY + l.px(1)}, rgb(0xED, 0xEF, 0xF3))
-	tip := "关闭本窗口即退出程序；抓取与导出均在本机完成，不经过任何第三方服务器"
+	tip := "关闭窗口前会二次确认；抓取与导出均在本机完成，不经过任何第三方服务器"
 	if l.tip != "" {
 		tip = l.tip
 	}
