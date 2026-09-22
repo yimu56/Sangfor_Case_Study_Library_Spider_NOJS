@@ -47,7 +47,7 @@ type proxyResponse struct {
 }
 
 func startServer(webRoot fs.FS, port int) (*serverApp, error) {
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +61,6 @@ func startServer(webRoot fs.FS, port int) (*serverApp, error) {
 		url: fmt.Sprintf("http://127.0.0.1:%d/", tcpAddr.Port),
 		ln:  ln,
 	}
-	selfOrigin := fmt.Sprintf("http://127.0.0.1:%d", tcpAddr.Port)
-
 	client := newUpstreamClient()
 
 	mux := http.NewServeMux()
@@ -73,27 +71,27 @@ func startServer(webRoot fs.FS, port int) (*serverApp, error) {
 			"port":    tcpAddr.Port,
 		})
 	})
-	mux.HandleFunc("/api/proxy", func(w http.ResponseWriter, r *http.Request) {
-		if !guard(w, r, selfOrigin) {
-			return
-		}
-		handleProxy(w, r, client)
-	})
-	mux.HandleFunc("/api/image", func(w http.ResponseWriter, r *http.Request) {
-		if !guard(w, r, selfOrigin) {
-			return
-		}
-		handleImage(w, r, client)
-	})
-	mux.HandleFunc("/api/quit", func(w http.ResponseWriter, r *http.Request) {
-		if !guard(w, r, selfOrigin) {
-			return
-		}
-		writeJSON(w, map[string]any{"ok": true})
-		if app.onQuit != nil {
-			go app.onQuit()
-		}
-	})
+mux.HandleFunc("/api/proxy", func(w http.ResponseWriter, r *http.Request) {
+    if !guard(w, r) {
+        return
+    }
+    handleProxy(w, r, client)
+})
+mux.HandleFunc("/api/image", func(w http.ResponseWriter, r *http.Request) {
+    if !guard(w, r) {
+        return
+    }
+    handleImage(w, r, client)
+})
+mux.HandleFunc("/api/quit", func(w http.ResponseWriter, r *http.Request) {
+    if !guard(w, r) {
+        return
+    }
+    writeJSON(w, map[string]any{"ok": true})
+    if app.onQuit != nil {
+        go app.onQuit()
+    }
+})
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -114,8 +112,14 @@ func startServer(webRoot fs.FS, port int) (*serverApp, error) {
 
 // guard 拒绝来自其它页面的调用。同源请求要么不带 Origin（GET），
 // 要么带的正是我们自己的地址（POST）。
-func guard(w http.ResponseWriter, r *http.Request, selfOrigin string) bool {
-	if o := r.Header.Get("Origin"); o != "" && o != selfOrigin {
+func guard(w http.ResponseWriter, r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	if o == "" {
+		return true
+	}
+
+	u, err := url.Parse(o)
+	if err != nil || !strings.EqualFold(u.Host, r.Host) {
 		http.Error(w, "forbidden origin", http.StatusForbidden)
 		return false
 	}
